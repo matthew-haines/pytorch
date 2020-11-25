@@ -44,40 +44,32 @@ Tensor mean(
   api::Command::Buffer command_buffer = context->command().pool.allocate();
   command_buffer.begin();
   {
-    if (v_input.has_image()) {
+    if C10_LIKELY(v_input.has_image()) {
       const struct {
         uint32_t input_width, input_height;
-      } block{
+      } block {
           input_arg.sizes()[3],
           input_arg.sizes()[2],
       };
 
-      if (keepdim) {
-        context->dispatch(
-            command_buffer,
-            {
-                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            },
-            VK_KERNEL(mean),
-            v_output.extents(),
-            v_output.image(command_buffer, vTensor::Access::Write),
-            v_input.image(command_buffer));
-      } else {
-        context->dispatch(
-            command_buffer,
-            {
-                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            },
-            VK_KERNEL(mean2d),
-            v_output.extents(),
-            v_output.image(command_buffer, vTensor::Access::Write),
-            v_input.image(command_buffer),
-            context->resource().pool.uniform(block).object);
-      }
-    } else {
+      context->dispatch(
+          command_buffer,
+          {
+              VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+              VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          },
+          VK_KERNEL(mean),
+          v_output.extents(),
+          v_output.image(
+              command_buffer,
+              vTensor::Stage::Compute,
+              vTensor::Access::Write),
+          v_input.image(
+              command_buffer,
+              vTensor::Stage::Compute));
+    }
+    else {
       TORCH_CHECK(false, "Not implemented!");
     }
   }

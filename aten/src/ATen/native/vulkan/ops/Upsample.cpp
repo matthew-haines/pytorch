@@ -8,6 +8,8 @@ namespace vulkan {
 namespace ops {
 namespace {
 
+using namespace api::utils;
+
 Tensor upsample_nearest2d(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
@@ -38,18 +40,29 @@ Tensor upsample_nearest2d(
   api::Command::Buffer command_buffer = context->command().pool.allocate();
   command_buffer.begin();
   {
-    if (v_input.has_image()) {
+    if C10_LIKELY(v_input.has_image()) {
       const struct {
-        float scale_x, scale_y;
+        uvec3 extents;
+        uint32_t _;
+        ivec2 iextents;
+        vec2 scale;
       } block {
-        compute_scales_value<float>(
-            scales_w,
-            input_sizes[Layout::Activation4D::width],
-            output_sizes[Layout::Parameter::width]),
-        compute_scales_value<float>(
-            scales_h,
-            input_sizes[Layout::Activation4D::height],
-            output_sizes[Layout::Parameter::height]),
+        v_output.extents(),
+        0u,
+        {
+          safe_downcast<int32_t>(input.size(Layout::Activation4D::width) - 1),
+          safe_downcast<int32_t>(input.size(Layout::Activation4D::height) - 1),
+        },
+        {
+            compute_scales_value<float>(
+                scales_w,
+                input_sizes[Layout::Activation4D::width],
+                output_sizes[Layout::Parameter::width]),
+            compute_scales_value<float>(
+                scales_h,
+                input_sizes[Layout::Activation4D::height],
+                output_sizes[Layout::Parameter::height]),
+        },
       };
 
       context->dispatch(
@@ -63,10 +76,15 @@ Tensor upsample_nearest2d(
           v_output.extents(),
           // Write-only access bypasses synchronization but inserts appropriate
           // barriers if necessary.
-          v_output.image(command_buffer, vTensor::Access::Write),
+          v_output.image(
+              command_buffer,
+              vTensor::Stage::Compute,
+              vTensor::Access::Write),
           // Read-only access is implied on const tensors and triggers an async
           // synchronization if necessary.
-          v_input.image(command_buffer),
+          v_input.image(
+              command_buffer,
+              vTensor::Stage::Compute),
           // Object lifetime is managed by the resource pool.
           // It is OK not to keep track of the handle.
           context->resource().pool.uniform(block).object);
